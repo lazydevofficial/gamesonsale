@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  GamesOnSaleApplication
+
+  Essa aplicacao envia mensagens SNS a respeito de jogos gratuitos e armazena estas e outras
+  boas promocoes em uma tabela do DynamoDB
+  
+Resources:
+  GamesOnSaleStateMachine:
+    Type: AWS::Serverless::StateMachine 
+    Properties:
+      DefinitionUri: statemachine/gamesonsale.asl.json
+      DefinitionSubstitutions:
+        GetGamesOnSaleFunctionArn: !GetAtt GetGamesOnSaleFunction.Arn
+        ConvertCurrencyFunctionArn: !GetAtt ConvertCurrencyFunction.Arn
+        DDBPutItem: !Sub arn:${AWS::Partition}:states:::dynamodb:putItem
+        DDBTable: !Ref GamesOnSaleTable
+        FreeGameTopicArn: !Ref FreeGameTopic
+      Events:
+        DailySchedule:
+          Type: Schedule 
+          Properties:
+            Description: Schedule para rodar maquina de estado
+            Enabled: False 
+            Schedule: "rate(1 day)"
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GetGamesOnSaleFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ConvertCurrencyFunction
+        - DynamoDBWritePolicy:
+            TableName: !Ref GamesOnSaleTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt FreeGameTopic.TopicName
+        
+
+  FreeGameTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName:
+        free-game-topic
+
+  GetGamesOnSaleFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/getgamesonsale/
+      Handler: app.lambda_handler
+      Runtime: python3.6
+
+  ConvertCurrencyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/convertcurrency/
+      Handler: app.lambda_handler
+      Runtime: python3.6
+
+  GamesOnSaleTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey:
+        Name: Id
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+        
+Outputs:
+  GamesOnSaleStateMachineArn:
+    Description: "Games On Sale State Machine ARN"
+    Value: !Ref GamesOnSaleStateMachine
+  GamesOnSaleStateMachineRoleArn:
+    Description: "IAM Role criada para Games On Sale State Machine baseado na SAM Policy Template"
+    Value: !GetAtt GamesOnSaleStateMachineRole.Arn

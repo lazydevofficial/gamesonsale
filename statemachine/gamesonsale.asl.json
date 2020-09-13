@@ -1,0 +1,118 @@
+{
+    "Comment": "GameOnSales State Machine",
+    "StartAt": "GetGamesOnSale",
+    "States": {
+        "GetGamesOnSale": {
+            "Type": "Task",
+            "Resource": "${GetGamesOnSaleFunctionArn}",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 15,
+                    "BackoffRate": 1.5,
+                    "MaxAttempts": 5
+                }
+            ],
+            "Next": "MapGames"
+        },
+        "MapGames": {
+            "Type": "Map",
+            "MaxConcurrency": 2,
+            "Next": "Final State",
+            "Iterator": {
+                "StartAt": "CheckSavings",
+                "States": {
+                    "CheckSavings": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.savings",
+                                "NumericEquals": 100,
+                                "Next": "NotifyFreeGame"
+                            },
+                            {
+                                "Variable": "$.savings",
+                                "NumericGreaterThanEquals": 85,
+                                "Next": "ConvertCurrency"
+                            }
+                        ],
+                        "Default": "DiscardBadOffer"
+                    },
+                    "NotifyFreeGame": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:states:::sns:publish",
+                        "Parameters": {
+                            "TopicArn": "${FreeGameTopicArn}",
+                            "Message": {
+                                "Input.$": "$.title"
+                            }
+                        },
+                        "Next": "ConvertCurrency",
+                        "ResultPath": null
+                    },
+                    "ConvertCurrency": {
+                        "Type": "Task",
+                        "Resource": "${ConvertCurrencyFunctionArn}",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "States.TaskFailed"
+                                ],
+                                "IntervalSeconds": 15,
+                                "BackoffRate": 1.5,
+                                "MaxAttempts": 5
+                            }
+                        ],
+                        "Next": "SaveGoodOffer"
+                    },
+                    "SaveGoodOffer": {
+                        "Type": "Task",
+                        "Resource": "${DDBPutItem}",
+                        "Parameters": {
+                            "TableName": "${DDBTable}",
+                            "Item": {
+                                "Id": {
+                                    "S.$": "$.id"
+                                },
+                                "Title": {
+                                    "S.$": "$.title"
+                                },
+                                "NormalPrice": {
+                                    "N.$": "$.normalPrice"
+                                },
+                                "SalePrice": {
+                                    "N.$": "$.salePrice"
+                                },
+                                "Timestamp": {
+                                    "S.$": "$.timestamp"
+                                }
+                            }
+                        },
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "States.TaskFailed"
+                                ],
+                                "IntervalSeconds": 20,
+                                "BackoffRate": 5,
+                                "MaxAttempts": 10
+                            }
+                        ],
+                        "End": true
+                    },
+                    "DiscardBadOffer": {
+                        "Type": "Pass",
+                        "Result": "Game discarded (bad offer)",
+                        "End": true
+                    }
+                }
+            }
+        },
+        "Final State": {
+            "Type": "Pass",
+            "End": true
+        }
+    }
+}
